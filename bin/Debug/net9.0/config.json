@@ -1,0 +1,46 @@
+{
+  "SimulationSettings": {
+    "TimeScale": 120,
+    "WorldWidth": 10,
+    "WorldHeight": 10,
+    "InitialNPCs": 5,
+    "SaveIntervalInSimMinutes": 10,
+    "IdleNextTick": 30
+  },
+  "Needs": [
+    {
+      "Name": "Hunger",
+      "DecayRate": 15,
+      "Threshold": 30
+    },
+    {
+      "Name": "Social",
+      "DecayRate": 5,
+      "Threshold": 20
+    }
+  ],
+  "Buildings": [
+    {
+      "Name": "Restaurant",
+      "GenerationChance": 0.1,
+      "Satisfactions": [
+        {
+          "NeedName": "Hunger",
+          "Amount": 100,
+          "TimeCostInHours": 0.5
+        }
+      ]
+    },
+    {
+      "Name": "Park",
+      "GenerationChance": 0.05,
+      "Satisfactions": [
+        {
+          "NeedName": "Social",
+          "Amount": 60,
+          "TimeCostInHours": 0.5
+        }
+      ]
+    }
+  ]
+}

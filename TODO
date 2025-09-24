@@ -1,0 +1,8 @@
+have the sim run in background and connect via cli to it to display
+    current time
+    each npc and their needs
+    other data
+
+create a systemd service for the sim.
+
+
