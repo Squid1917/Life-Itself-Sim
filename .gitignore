@@ -1,0 +1,16 @@
+# Git ignore file for a C# project
+
+# Visual Studio and .NET build artifacts
+[Bb]in/
+[Oo]bj/
+
+# User-specific data and sensitive files
+world_state.json
+.env
+TODO
+
+# Visual Studio specific files
+.vs/
+*.suo
+*.user
+*.userprefs
