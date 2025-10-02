@@ -1,10 +1,4 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
 using Newtonsoft.Json;
-using System.Threading;
-using System.Threading.Tasks;
 
 public class SimManager
 {
@@ -17,15 +11,15 @@ public class SimManager
     public readonly Random rng;
     private readonly SimServer _server;
 
-     public SimManager(string configPath, SimServer server)
+    public SimManager(string configPath, SimServer server)
     {
         rng = new Random();
         _config = LoadConfigData(configPath);
         _server = server;
-        InitializeSimulation(configPath);
+        InitializeSimulation();
     }
 
-    private void InitializeSimulation(string configPath)
+    private void InitializeSimulation()
     {
 
         Console.Clear();
@@ -52,19 +46,21 @@ public class SimManager
                 List<Need> npcNeeds = _config.Needs.Select(n => new Need
                 {
                     Name = n.Name,
-                    DecayRate = Math.Clamp(n.DecayRate += rng.Next(-10, 5),5,35),
-                    Threshold = Math.Clamp(n.Threshold += rng.Next(-5, 10),10,35),
+                    DecayRate = Math.Clamp(n.DecayRate += rng.Next(-5, 5), 5, 20),
+                    Threshold = Math.Clamp(n.Threshold += rng.Next(-5, 5), 10, 40),
                     Amount = 100
                 }).ToList();
 
-                NPC newNPC = new NPC(npcNeeds, _config.Buildings);
+                int age = rng.Next(45, 50);
+
+                NPC newNPC = new NPC(npcNeeds, _config.Buildings, this, age);
                 newNPC.Position = GetRandomEmptyCell();
                 newNPC.Name = Task.Run(GetRandomNPCNameAsync).Result;
 
                 newNPC.NextTickTime = ((float)rng.Next(15, 45)) / 100;
                 _npcTickQueue.Enqueue(newNPC);
             }
-            
+
             Console.WriteLine("Simulation Config: ");
             Console.WriteLine($"Simulation Time Multiplier: {_config.SimulationSettings.TimeScale}");
             Console.WriteLine($"Simulation Save Interval: {_config.SimulationSettings.SaveIntervalInSimMinutes}");
@@ -76,23 +72,18 @@ public class SimManager
 
     public void RunSimulation()
     {
-        // One simulation minute is 1/60th of an hour
         const float simMinuteInHours = 1f / 60f;
-
-        // This variable controls the simulation speed
         int RealWorldMinuteToSimMinute = _config!.SimulationSettings.TimeScale; // Example: 1 real minute = 60 sim minutes
 
 
         while (true)
         {
-            // Calculate real-world time to sleep based on the variable
             int realMillisecondsPerSimMinute = (int)(60f / RealWorldMinuteToSimMinute * 1000f);
 
             Thread.Sleep(realMillisecondsPerSimMinute);
 
             lock (_lock)
             {
-                // Advance the simulation time by exactly one minute
                 _currentTime += simMinuteInHours;
 
                 // Process all NPCs whose tick time is less than or equal to the current time
@@ -106,45 +97,6 @@ public class SimManager
                     _npcTickQueue.Enqueue(npcToTick);
                 }
 
-
-                // Display Data
-                Console.Clear();
-                Console.WriteLine($"--- Sim Time: {TimeSpan.FromHours(_currentTime):dd\\.hh\\:mm} ---\n");
-
-
-                // Print World Grid
-                int cellWidth = 14;
-                string horizontalLine = new string('-', (_config.SimulationSettings.WorldWidth * cellWidth) + 1);
-                Console.WriteLine(horizontalLine);
-                for (int y = 0; y < _config.SimulationSettings.WorldHeight; y++)
-                {
-                    Console.Write("|");
-                    for (int x = 0; x < _config.SimulationSettings.WorldWidth; x++)
-                    {
-                        Position currentPos = new Position { X = x, Y = y };
-                        Cell? currentCell = _worldGrid!.GetCell(currentPos);
-                        string cellType = currentCell?.Type ?? "Empty";
-                        Console.Write($"{cellType.PadRight(cellWidth - 1)}|");
-                    }
-                    Console.WriteLine();
-                    Console.WriteLine(horizontalLine);
-                }
-                Console.WriteLine();
-
-
-                List<NPC> npcList = [.. _npcTickQueue.ToList().OrderBy(n => n.Name)];
-                foreach (NPC npc in npcList)
-                {
-                    Console.WriteLine($"NPC: {npc.Name}:");
-                    Console.WriteLine($"Status: {npc.CurrentStatus}.");
-                    Console.WriteLine($"Next Tick Time: {TimeSpan.FromHours(npc.NextTickTime):dd\\.hh\\:mm}");
-                    foreach (Need need in npc._Needs)
-                    {
-                        Console.WriteLine($"Need: {need.Name}, \tValue: {need.Amount} \tDecay: {need.DecayRate} \tThreshold: {need.Threshold}");
-                    }
-                    Console.WriteLine("");
-                }
-
                 // Save state based on simulation time
                 if (_config!.SimulationSettings.SaveIntervalInSimMinutes > 0 &&
                     (int)(_currentTime * 60) % _config.SimulationSettings.SaveIntervalInSimMinutes == 0)
@@ -152,13 +104,16 @@ public class SimManager
                     SaveSimState(_saveFilePath);
                 }
             }
+
             var saveState = new SimSaveState
-                {
-                    CurrentTime = _currentTime,
-                    Npcs = _npcTickQueue.ToList(),
-                    WorldState = _worldGrid!.GetWorldData()
-                };
-            _server.BroadcastStateAsync(saveState);
+            {
+                CurrentTime = _currentTime,
+                Npcs = _npcTickQueue.ToList(),
+                WorldState = _worldGrid!.GetWorldData()
+            };
+
+            saveState.Npcs.Sort((a, b) => string.Compare(a.Name, b.Name));
+            _ = _server.BroadcastStateAsync(saveState);
         }
     }
 
@@ -194,6 +149,7 @@ public class SimManager
         {
             // Set the _Buildings list for each loaded NPC
             npc.SetBuildings(_config!.Buildings);
+            npc.SetManager(this);
             _npcTickQueue.Enqueue(npc);
         }
         Console.WriteLine($"Simulation state loaded. Current sim time: {_currentTime}");
@@ -265,7 +221,7 @@ public class SimManager
             // Make the actual API call
             HttpClient _httpClient = new HttpClient();
             string responseBody = await _httpClient.GetStringAsync("https://randomuser.me/api/");
-            
+
             dynamic? data = JsonConvert.DeserializeObject(responseBody);
             if (data?.results != null && data!.results.Count > 0)
             {
@@ -279,5 +235,10 @@ public class SimManager
             Console.WriteLine($"Error getting name from API: {ex.Message}");
         }
         return "Unnamed NPC";
+    }
+
+    public void KillNPC(NPC npc)
+    {
+        _ = _npcTickQueue.ToList().Remove(npc);
     }
 }

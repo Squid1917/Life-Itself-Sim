@@ -1,6 +1,3 @@
-using System;
-using System.Threading.Tasks;
-
 class Program
 {
     static async Task Main(string[] args)
@@ -8,7 +5,7 @@ class Program
         Console.WriteLine("Starting Life-Itself Simulation and Server...");
         try
         {
-            int serverPort = 5000;
+            int serverPort = 5050;
             var server = new SimServer(serverPort);
             
             // Start the server in the background

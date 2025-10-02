@@ -1,8 +1,8 @@
 {
   "SimulationSettings": {
     "TimeScale": 120,
-    "WorldWidth": 10,
-    "WorldHeight": 10,
+    "WorldWidth": 500,
+    "WorldHeight": 500,
     "InitialNPCs": 5,
     "SaveIntervalInSimMinutes": 10,
     "IdleNextTick": 30

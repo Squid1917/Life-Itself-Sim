@@ -1,10 +1,20 @@
-using System;
+using MessagePack;
 
+[MessagePackObject]
 public struct Position : IEquatable<Position>
 {
-    public required int X;
-    public required int Y;
+    [Key(0)]
+    public int X;
+    [Key(1)]
+    public int Y;
+
     public static Position Invalid => new Position { X = -1, Y = -1 };
+
+    public Position()
+    {
+        X = 0;
+        Y = 0;
+    }
 
     public Position(int x, int y)
     {

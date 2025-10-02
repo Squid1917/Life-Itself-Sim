@@ -1,12 +1,9 @@
-using System;
 using System.Net;
 using System.Net.WebSockets;
 using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 using Newtonsoft.Json;
-using System.Linq;
+using MessagePack;
+using System.IO.Compression;
 
 public class SimServer
 {
@@ -21,15 +18,12 @@ public class SimServer
     public SimServer(int port)
     {
         _serverUri = $"http://+:{port}/";
-        // The SimManager is now created outside of this class
         _httpListener = new HttpListener();
         _httpListener.Prefixes.Add(_serverUri);
     }
 
     public void SetSimManager(SimManager simManager)
     {
-        // This method allows the SimManager to be set after the SimServer is instantiated.
-        // It's a common pattern to handle circular dependencies.
         _simManager = simManager;
     }
 
@@ -39,9 +33,6 @@ public class SimServer
         {
             _httpListener.Start();
             Console.WriteLine($"WebSocket server listening on {_serverUri}");
-
-            // The simulation is now started by the Program class,
-            // so we don't need to do it here.
 
             // Accept incoming connections.
             while (true)
@@ -71,51 +62,96 @@ public class SimServer
             }
         }
     }
-
+    
     private async Task ProcessWebSocketRequestAsync(HttpListenerContext context)
     {
         var webSocketContext = await context.AcceptWebSocketAsync(null);
-        var webSocket = webSocketContext.WebSocket;
 
-        await _clientLock.WaitAsync();
-        try
+        using (var webSocket = webSocketContext.WebSocket)
         {
-            _clients.Add(webSocket);
-            Console.WriteLine($"Client connected. Total clients: {_clients.Count}");
-        }
-        finally
-        {
-            _clientLock.Release();
-        }
-
-        while (webSocket.State == WebSocketState.Open)
-        {
-            // The server primarily broadcasts, so this loop keeps the connection alive
-            // and can be used to read client messages if needed in the future.
-            var buffer = new byte[1024];
-            var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
-            if (result.MessageType == WebSocketMessageType.Close)
+            await _clientLock.WaitAsync();
+            try
             {
-                await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                _clients.Add(webSocket);
+                Console.WriteLine($"Client connected. Total clients: {_clients.Count}");
+            }
+            finally
+            {
+                _ = _clientLock.Release();
+            }
+
+            try
+            {
+                var buffer = new byte[1024];
+                // Loop while the socket is open
+                while (webSocket.State == WebSocketState.Open)
+                {
+                    var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), CancellationToken.None);
+
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        // Client initiated close. Acknowledge and exit loop.
+                        await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
+                        break;
+                    }
+                }
+            }
+            catch (WebSocketException ex) when (ex.WebSocketErrorCode == WebSocketError.ConnectionClosedPrematurely)
+            {
+                // Ignore this common exception when the client closes abruptly.
+            }
+            catch (Exception ex)
+            {
+                // Log unexpected errors
+                Console.WriteLine($"Error during client communication: {ex.Message}");
+            }
+            finally
+            {
+                await _clientLock.WaitAsync();
+                try
+                {
+                    if (_clients.Contains(webSocket))
+                    {
+                        _ = _clients.Remove(webSocket);
+                    }
+                    Console.WriteLine($"Client disconnected. Total clients: {_clients.Count}");
+                }
+                finally
+                {
+                    _ = _clientLock.Release();
+                }
             }
         }
+    }
+    
+    // Helper method to compress a byte array using Gzip
+    private static byte[] CompressWithGzip(byte[] data)
+    {
+        using (var compressedStream = new MemoryStream())
+        {
+            // The GZipStream compresses the data written to it and writes the result to compressedStream
+            using (var gzipStream = new GZipStream(compressedStream, CompressionMode.Compress, true))
+            {
+                gzipStream.Write(data, 0, data.Length);
+            } // gzipStream is disposed here, ensuring all bytes are flushed
 
-        await _clientLock.WaitAsync();
-        try
-        {
-            _clients.Remove(webSocket);
-            Console.WriteLine($"Client disconnected. Total clients: {_clients.Count}");
-        }
-        finally
-        {
-            _clientLock.Release();
+            return compressedStream.ToArray();
         }
     }
 
-    public async Task BroadcastStateAsync(SimSaveState state)
+    // UPDATED: Now takes the final SimSaveState object ready for broadcast.
+    public async Task BroadcastStateAsync(SimSaveState broadcastState)
     {
-        var json = JsonConvert.SerializeObject(state);
-        var buffer = Encoding.UTF8.GetBytes(json);
+        var sparseJson = JsonConvert.SerializeObject(broadcastState, Formatting.None);
+        var sparseBuffer = Encoding.UTF8.GetBytes(sparseJson);
+        
+        var mpBuffer = MessagePackSerializer.Serialize(broadcastState);
+
+        var finalBuffer = CompressWithGzip(mpBuffer);
+
+        
+        // Final buffer to send is the smallest one (OPT 3)
+        var bufferToSend = finalBuffer;
 
         await _clientLock.WaitAsync();
         try
@@ -128,8 +164,8 @@ public class SimServer
                     try
                     {
                         await client.SendAsync(
-                            new ArraySegment<byte>(buffer, 0, buffer.Length),
-                            WebSocketMessageType.Text,
+                            new ArraySegment<byte>(bufferToSend, 0, bufferToSend.Length),
+                            WebSocketMessageType.Binary, // Send as the final binary message
                             true,
                             CancellationToken.None
                         );
@@ -143,7 +179,7 @@ public class SimServer
         }
         finally
         {
-            _clientLock.Release();
+            _ = _clientLock.Release();
         }
     }
 }

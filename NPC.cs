@@ -1,27 +1,44 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading;
+using MessagePack;
 
+[MessagePackObject]
 public class NPC
 {
+    [Key(1)]
     public string Name { get; set; }
+    [Key(2)]
     public Position Position { get; set; }
+    [Key(3)]
     public string CurrentStatus { get; set; }
+    [Key(4)]
     public float NextTickTime { get; set; }
+    [Key(5)]
+    public int age { get; set; } = 50;
+    [Key(6)]
+    public int health { get; set; } = 100;
 
-    private Timer? _timer;
-    
+    [Key(7)]
     public List<Need> _Needs { get; set; }
-    private List<Building> _Buildings;
 
-    public NPC(List<Need> Needs, List<Building> Buildings)
+    private List<Building> _Buildings;
+    private Timer? _timer;
+    private SimManager _manager;
+
+     public NPC()
+    {
+        _Needs = new List<Need>(); 
+        _Buildings = new List<Building>();
+        CurrentStatus = "Idle";
+    }
+
+    public NPC(List<Need> Needs, List<Building> Buildings, SimManager manager, int age)
     {
         _Needs = Needs;
         _Buildings = Buildings;
         CurrentStatus = "Idle";
+        _manager = manager;
+        this.age = age;
     }
-    
+
     public void SetBuildings(List<Building> buildings)
     {
         _Buildings = buildings;
@@ -30,6 +47,23 @@ public class NPC
     public void OnTick(SimManager manager, WorldGrid world)
     {
         DecayNeeds();
+
+        if (health <= 10)
+        {
+            if (manager.rng.Next(0, 100) < 30)
+            {
+                manager.KillNPC(this);
+            }
+        }
+
+        if (GetDeathFromAge(age))
+        {
+            manager.KillNPC(this);
+        }
+
+
+        //Chacne to create new npc
+
 
         // Order needs by amount, filter needs that are below threshold, get a list of at most the top 5
         List<Need> urgentNeeds = _Needs.OrderBy(need => need.Amount)
@@ -84,7 +118,7 @@ public class NPC
                     }
 
                     // Increment the need by the per-real-second amount
-                    fillingNeed.Amount = Math.Clamp(fillingNeed.Amount + incrementalAmountPerRealSecond,0,100);
+                    fillingNeed.Amount = Math.Clamp(fillingNeed.Amount + incrementalAmountPerRealSecond, 0, 100);
 
                 }, null, 0, 1000); // Trigger every 1000 milliseconds (1 second)
 
@@ -102,12 +136,27 @@ public class NPC
         //NPC is idle
         manager.RequestTick(this, manager._config.SimulationSettings.IdleNextTick / 60f);
     }
-    
+
     private void DecayNeeds()
     {
         foreach (Need need in _Needs)
         {
             need.Amount = Math.Clamp(need.Amount - need.DecayRate, 0, 100);
+            if (need.Amount < need.Threshold)
+            {
+                health--;
+            }
         }
+    }
+
+    bool GetDeathFromAge(int age)
+    {
+        double p = age < 1 ? 0.3 : 1 - Math.Exp(-0.05 * (age - 1));
+        return _manager.rng.NextDouble() < p;
+    }
+
+    public void SetManager(SimManager manager)
+    {
+        _manager = manager;
     }
 }

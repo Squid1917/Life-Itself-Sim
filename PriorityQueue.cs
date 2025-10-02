@@ -1,6 +1,3 @@
-using System.Collections.Generic;
-using System.Linq;
-
 public class PriorityQueue<T> where T : NPC
 {
     private List<T> _items = new List<T>();

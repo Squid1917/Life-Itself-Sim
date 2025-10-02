@@ -1,7 +1,3 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
-
 public class WorldGrid
 {
     private Cell[,] _grid;
@@ -73,7 +69,7 @@ public class WorldGrid
             for (int y = 0; y < _height; y++)
             {
                 Cell? cell = _grid[x, y];
-                if (cell != null)
+                if (cell != null && cell.Type != "Path")
                 {
                     cells.Add(cell);
                 }
